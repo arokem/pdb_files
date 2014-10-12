@@ -9,7 +9,7 @@ import nibabel as nib
 from nibabel.tmpdirs import InTemporaryDirectory
 
 
-import pdb
+import pdb_files as pdb
 
 
 def test_fg_from_pdb():
@@ -21,15 +21,13 @@ def test_fg_from_pdb():
     >> fg = mtrImportFibers('FG_w_stats.pdb')
     
     """
-
     pdb_files = ['FG_w_stats.pdb', 'pdb_version2.pdb']
     mat_files = ['fg_from_matlab.mat', 'pdb_version2.mat']
     for ii in range(len(pdb_files)):
-        file_name = data_path + pdb_files[ii]
-        fg = pdb.fg_from_pdb(file_name)
+        file_name = pdb_files[ii]
+        fg = pdb.read(file_name)
         # Get the same fiber group as saved in matlab:
-        mat_fg = sio.loadmat(data_path + mat_files[ii],
-                             squeeze_me=True)["fg"]
+        mat_fg = sio.loadmat(mat_files[ii], squeeze_me=True)["fg"]
         k = [d[0] for d in mat_fg.dtype.descr]
         v = mat_fg.item()
         mat_fg_dict = dict(zip(k,v))
@@ -39,7 +37,7 @@ def test_fg_from_pdb():
             npt.assert_equal(fg.fibers[0].node_stats["eccentricity"],
                          mat_fg_dict["params"][0].item()[-1][0])
 
-        pdb.pdb_from_fg(fg, data_path + 'fg_new.pdb')
+        pdb.write(fg, 'fg_new.pdb')
     
     
 def test_pdb_from_fg():
@@ -80,7 +78,7 @@ def test_pdb_trk():
     Test reading of trk files into a FiberGroup
     """
     # This is a trk file taken from the dipy distro: 
-    trk_file = data_path + 'tracks300.trk'
+    trk_file = 'tracks300.trk'
     fg = pdb.fg_from_trk(trk_file)
     # It has 300 fibers in it:
     npt.assert_equal(len(fg.fibers), 300)
