@@ -61,18 +61,12 @@ completely ignored.
 
 
 """
-
 # Import from standard lib:
 import struct
 import os
-import inspect
 import warnings
-import urllib
-import zipfile
 
 import numpy as np
-import scipy.io as sio
-import scipy.stats as stats
 
 import nibabel as ni
 import nibabel.trackvis as tv
@@ -85,7 +79,6 @@ _fmt_dict = {'int':['=i', 4],
              'bool':['=?', 1],
              #'uint':['=I', 4],
                 }
-
 
 def _unpacker(file_read, idx, obj_to_read, fmt='int'):
 
@@ -113,6 +106,7 @@ def _unpacker(file_read, idx, obj_to_read, fmt='int'):
     idx += obj_to_read * fmt_sz
     return out, idx
 
+
 def _packer(file_write, vals, fmt='int'):
     """
     Helper function to pack binary data to files, using the struct library:
@@ -130,6 +124,7 @@ def _packer(file_write, vals, fmt='int'):
         s = struct.pack(fmt_str, vals)
         file_write.write(s)
 
+
 def _word_maker(arr):
     """
     Helper function Make a string out of pdb stats header "name" variables
@@ -143,6 +138,7 @@ def _word_maker(arr):
             break
     return ''.join(make_a_word)
 
+
 def _char_list_maker(name):
     """
     Helper function that does essentially the opposite of _word_maker. Takes a
@@ -155,24 +151,8 @@ def _char_list_maker(name):
     while len(l)<255:
         l.append('g')
     return l
-
-def _stat_hdr_set(fwrite, stat, uid):
-    """
-    Helper function for writing stuff into stats header portion of pdb files
-    """
-    # Name of the stat:
-    char_list = _char_list_maker(stat)
-    _packer(fwrite, char_list, 'char')
-    _packer(fwrite, char_list, 'char')  # Twice for some reason
-    _packer(fwrite, ['g','g'], 'char')  # Add this, so that that the uid ends
-                                        # up "word-aligned".
-
-    _packer(fwrite, uid) # These might get reordered upon
-                         # resaving on different platforms, because
-                         # dict keys come in no particular order...
-
-
-def read(file_name, verbose=True):
+    
+def read(file_name):
     """
     Read the definition of a fiber-group from a .pdb file
 
@@ -188,6 +168,7 @@ def read(file_name, verbose=True):
     ----
     This only reads Version 3 PDB files.
     """
+    hdr = {}
     # Read the file as binary info:
     f_obj = file(file_name, 'r')
     f_read = f_obj.read()
@@ -201,10 +182,11 @@ def read(file_name, verbose=True):
     # Next bit are doubles, encoding the xform (4 by 4 = 16 of them):
     xform, idx  = _unpacker(f_read, idx, 16, 'double')
     xform = np.reshape(xform, (4, 4))
+    hdr['affine'] = xform
 
     # Next is an int encoding the number of stats:
     numstats, idx = _unpacker(f_read, idx, 1)
-
+    hdr['n_stats'] = numstats
     # The stats header is a dict with lists holding the stat per
     stats_header = dict(luminance_encoding=[],  # int => bool
                         computed_per_point=[],  # int => bool
@@ -232,27 +214,30 @@ def read(file_name, verbose=True):
         this, idx = _unpacker(f_read, idx, 1)
         stats_header["uid"].append(this)
 
+    hdr['stats'] = stats_header
+
     # We skip the whole bit with the algorithms and go straight to the version
     # number, which is one int length before the fibers:
     idx = offset - 4
     version, idx = _unpacker(f_read, idx, 1)
+    hdr['version'] = version
+
     if int(version) < 2:
         raise ValueError("Can only read PDB version 2 or version 3 files")
-    elif verbose:
-        print("Loading a PDB version %s file from: %s"%(int(version), file_name))
 
     if int(version) == 2:
         idx = offset
 
     # How many fibers?
     numpaths, idx = _unpacker(f_read, idx, 1)
+    hdr['n_paths'] = numpaths
 
+    fibers=[]
+    fiber_stats=[]
+    node_stats=[]
+    
     if int(version) == 2:
         pts = []
-        if verbose:
-                prog_bar = ProgressBar(numpaths[0])
-                f_name = inspect.stack()[0][3]
-
         f_stats = []
         n_stats = []
         for p_idx in range(numpaths):
@@ -277,7 +262,7 @@ def read(file_name, verbose=True):
             # Read the nodes:
             pathways, idx = _unpacker(f_read, idx, n_nodes*3, 'double')
 
-            pts.append(np.reshape(pathways, (n_nodes, 3)).T)
+            pts.append(np.reshape(pathways, (n_nodes, 3)))
             for stat_idx in range(numstats):
                 if stats_header["computed_per_point"][stat_idx]:
                     name = stats_header["local_name"][stat_idx]
@@ -285,8 +270,6 @@ def read(file_name, verbose=True):
                                                     'double')
 
             n_stats.append(n_stats_dict)
-
-        fibers = []
 
         # Initialize all the fibers:
         for p_idx in range(numpaths):
@@ -296,10 +279,9 @@ def read(file_name, verbose=True):
             this_nstats_dict = n_stats[p_idx]
             n_stats_k = this_nstats_dict.keys()
             n_stats_v = [this_nstats_dict[k] for k in n_stats_k]
-            fibers.append(ozf.Fiber(pts[p_idx],
-                                xform,
-                                fiber_stats=dict(zip(f_stat_k, f_stat_v)),
-                                node_stats=dict(zip(n_stats_k, n_stats_v))))
+            fibers.append(pts[p_idx]),
+            fiber_stats.append(dict(zip(f_stat_k, f_stat_v)))
+            node_stats.append(dict(zip(n_stats_k, n_stats_v)))
 
 
     elif int(version) == 3:
@@ -312,18 +294,12 @@ def read(file_name, verbose=True):
         # We extract the information on a fiber-by-fiber basis
         pts_read = 0
         pts = []
-
-        if verbose:
-            prog_bar = ProgressBar(numpaths[0])
-            f_name = inspect.stack()[0][3]
         for p_idx in range(numpaths):
             n_nodes = pts_per_fiber[p_idx]
             pts.append(np.reshape(
                        fiber_pts[pts_read * 3:(pts_read + n_nodes) * 3],
-                       (n_nodes, 3)).T)
+                       (n_nodes, 3)))
             pts_read += n_nodes
-            if verbose:
-                prog_bar.animate(p_idx, f_name=f_name)
 
         f_stats_dict = {}
         for stat_idx in range(numstats):
@@ -337,7 +313,7 @@ def read(file_name, verbose=True):
         n_stats_dict = {}
         for stat_idx in range(numstats):
             pts_read = 0
-            # If it is computer per point, it's a node-stat:
+            # If it is computed per point, it's a node-stat:
             if stats_header["computed_per_point"][stat_idx]:
                 name = stats_header["local_name"][stat_idx]
                 n_stats_dict[name] = []
@@ -350,43 +326,45 @@ def read(file_name, verbose=True):
             else:
                 per_point_stat.append([])
 
-        fiber_group = dict(fibers=[], fiber_stats=[], node_stats=[])
         # Initialize all the fibers:
         for p_idx in range(numpaths):
             f_stat_k = f_stats_dict.keys()
             f_stat_v = [f_stats_dict[k][p_idx] for k in f_stat_k]
             n_stats_k = n_stats_dict.keys()
             n_stats_v = [n_stats_dict[k][p_idx] for k in n_stats_k]
-            fiber_group.append(ozf.Fiber(pts[p_idx],
-                                         xform,
-                                fiber_stats=dict(zip(f_stat_k, f_stat_v)),
-                                node_stats=dict(zip(n_stats_k, n_stats_v))))
-    if verbose:
-        print("Done reading from file")
-
-    name = os.path.split(file_name)[-1].split('.')[0]
-    fiber_group['name'] = name
-    fiber_group['affine'] = xform
-    return fiber_group
+            fibers.append(pts[p_idx]),
+            fiber_stats.append(dict(zip(f_stat_k, f_stat_v)))
+            node_stats.append(dict(zip(n_stats_k, n_stats_v)))
+    
+    return fibers, hdr, fiber_stats, node_stats
 
 
-def write(fg, file_name, verbose=True, affine=None):
+def write(fibers, hdr, fiber_stats, node_stats, file_name):
     """
-    Create a pdb file from a osmosis.fibers.FiberGroup class instance.
+    Write a pdb file.
 
     Parameters
     ----------
-    fg: a FiberGroup object
+    fibers : list
+         Streamlines, as (N, 3) arrays
+
+    hdr : dict
+
+    fiber_stats : list
+
+    node_stats : list 
 
     file_name: str
        Full path to the pdb file to be saved.
 
+    Notes
+    -----
+    Files are written as version 0.3 
     """
 
     fwrite = file(file_name, 'w')
     
-    # The total number of stats are both node-stats and fiber-stats:
-    n_stats = len(fiber_stats.keys()) + len(node_stats.keys())
+    n_stats = hdr['n_stats']
     stats_hdr_sz = (4 * _fmt_dict['int'][1] + 2 * _fmt_dict['char'][1] * 255 + 2)
 
     # This is the 'offset' to the beginning of the fiber-data. Note that we are
@@ -401,34 +379,25 @@ def write(fg, file_name, verbose=True, affine=None):
 
 
     _packer(fwrite, hdr_sz)
-    if affine is None:
-        if fg.affine is None:
+    if hdr['affine'] is None:
             affine = tuple(np.eye(4).ravel().squeeze())
-        else:
-            affine = tuple(np.array(fg.affine).ravel().squeeze())
     else:
-        affine = tuple(np.array(affine).ravel().squeeze())
+        affine = tuple(np.array(hdr['affine']).ravel().squeeze())
 
     _packer(fwrite, affine, 'double')
     _packer(fwrite, n_stats)
 
-
-    # We are going to assume that fibers are homogenous on the following
-    # properties. XXX Should we check that when making FiberGroup instances?
-    uid = 0
-    for f_stat in fg[0].fiber_stats:
-        _packer(fwrite, True)   # currently unused
-        _packer(fwrite, False)  # Is this per-point?
-        _packer(fwrite, True)   # currently unused
-        _stat_hdr_set(fwrite, f_stat, uid)
-        uid += 1  # We keep tracking that across fiber and node stats
-
-    for n_stat in fg[0].node_stats:
-        # Three True bools for this one:
-        for x in range(3):
-            _packer(fwrite, True)
-        _stat_hdr_set(fwrite, n_stat, uid)
-        uid += 1
+    for uid in range(hdr['n_stats']):
+        _packer(fwrite, int(hdr['stats']['luminance_encoding'][uid]))  
+        _packer(fwrite, int(hdr['stats']['computed_per_point'][uid])) 
+        _packer(fwrite, int(hdr['stats']['viewable'][uid]))
+        char_list = _char_list_maker(hdr['stats']['agg_name'][uid])
+        _packer(fwrite, char_list, 'char')
+        char_list = _char_list_maker(hdr['stats']['local_name'][uid])
+        _packer(fwrite, char_list, 'char')
+        _packer(fwrite, ['g','g'], 'char')  # Add this, so that that the uid ends
+                                            # up "word-aligned".
+        _packer(fwrite, uid)
 
     _packer(fwrite, 0) # Number of algorithms - set to 0 always
 
@@ -436,32 +405,28 @@ def write(fg, file_name, verbose=True, affine=None):
 
     # This is the PDB file version:
     _packer(fwrite, 3)
-    _packer(fwrite, fg.n_fibers)
+    _packer(fwrite, hdr['n_paths'])
 
-    for fib in fg.fibers:
+    for fib in fibers:
         # How many coords in each fiber:
-        _packer(fwrite, fib.coords.shape[-1])
-
+        _packer(fwrite, fib.shape[0])
+    
     # x,y,z coords in each fiber:
-    for fib in fg.fibers:
-        _packer(fwrite, fib.coords.T.ravel(), 'double')
+    for fib in fibers:
+        _packer(fwrite, fib.ravel(), 'double')
+    
+    for stat_idx in range(hdr['n_stats']):
+        if not hdr['stats']['computed_per_point'][stat_idx]:
+            for f in fiber_stats:
+                _packer(fwrite, f[hdr['stats']['local_name'][stat_idx]], 'double')
+        else: 
+            for f in fiber_stats:
+                _packer(fwrite, 0, 'double')
 
-    for stat in fg[0].fiber_stats:
-        for fib in fg.fibers:
-            _packer(fwrite, fib.fiber_stats[stat],'double')
-
-    # The per-node stats have to be inserted in here as well, with their mean
-    # value:
-    for stat in fg[1].node_stats:
-        for fib in fg.fibers:
-            _packer(fwrite, np.mean(fib.node_stats[stat]), 'double')
-
-    for stat in fg[1].node_stats:
-        for fib in fg.fibers:
-            _packer(fwrite, fib.node_stats[stat], 'double')
-
-    if verbose:
-        "Done saving data in file%s"%file_name
+    for stat_idx in range(hdr['n_stats']):
+        if hdr['stats']['computed_per_point'][stat_idx]:
+            for f in node_stats:
+                _packer(fwrite, f[hdr['stats']['local_name'][stat_idx]], 'double')
 
     fwrite.close()
 
