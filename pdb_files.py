@@ -68,7 +68,7 @@ import warnings
 
 import numpy as np
 
-import nibabel as ni
+import nibabel as nib
 import nibabel.trackvis as tv
 
 
@@ -430,40 +430,41 @@ def write(fibers, hdr, fiber_stats, node_stats, file_name):
 
     fwrite.close()
 
-
-def fg_from_trk(trk_file, affine=None):
+def empty_hdr():
     """
-    Read data from a trackvis .trk file and create a FiberGroup object
-    according to the information in it.
+    
     """
-
-    # Generate right away, since we're going to do it anyway:
-    read_trk = tv.read(trk_file, as_generator=False)
-    fibers_trk = read_trk[0]
-
-    # Per default read from the affine from the file header:
-    if affine is not None:
-        aff = affine
-    else:
-        hdr = read_trk[1]
-        aff= tv.aff_from_hdr(hdr)
-        # If the header contains a bogus affine, we revert to np.eye(4), so we
-        # don't get into trouble later:
-        try:
-            np.matrix(aff).getI()
-        except np.linalg.LinAlgError:
-            e_s = "trk file contains bogus header, reverting to np.eye(4)"
-            warnings.warn(e_s)
-            aff = np.eye(4)
-
-    fibers = []
-    for f in fibers_trk:
-        fibers.append(ozf.Fiber(np.array(f[0]).T,affine=aff))
-
-    return ozf.FiberGroup(fibers, affine=aff)
+    return {'affine': np.eye(4),
+            'n_paths': np.array([0]),
+            'n_stats': np.array([0]),
+            'stats': {'agg_name': [],
+                      'computed_per_point': [],
+                      'local_name': [],
+                      'luminance_encoding': [],
+                      'uid': [],
+                      'viewable': []},
+            'version': np.array([3])}
 
 def trk2pdb(trk_file, pdb_file):
-    pass
+    trk_fibs, trk_hdr = nib.trackvis.read(trk_file)
+    pdb_hdr = empty_hdr()
+    pdb_hdr['affine'] = nib.trackvis.aff_from_hdr(trk_hdr)
+    pdb_hdr['n_paths'] = trk_hdr['n_count']
+    fibers = [f[0] for f in trk_fibs]
+    fiber_stats = []
+    node_stats = []
+    write(fibers, pdb_hdr, fiber_stats, node_stats, pdb_file)
+    
 
 def pdb2trk(pdb_file, trk_file):
-    pass
+    pdb_fibs, pdb_hdr, fiber_stats, node_stats = read(pdb_file)
+    trk_hdr = nib.trackvis.empty_header()
+    try:
+        nib.trackvis.aff_to_hdr(pdb_hdr['affine'], trk_hdr)
+    except np.linalg.LinAlgError:
+        nib.trackvis.aff_to_hdr(np.eye(4), trk_hdr)
+    trk_fibs = []
+    for ff in pdb_fibs:
+        trk_fibs.append((ff, None, None))
+
+    nib.trackvis.write(trk_file, trk_fibs, trk_hdr)

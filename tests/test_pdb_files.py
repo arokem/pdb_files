@@ -7,7 +7,7 @@ import scipy.io as sio
 
 import nibabel as nib
 from nibabel.tmpdirs import InTemporaryDirectory
-
+import dipy.data as dpd
 
 import pdb_files as pdf
 
@@ -35,9 +35,28 @@ def test_pdb():
         if ii==0:
             npt.assert_equal(node_stats[0]["eccentricity"],
                              mat_fg_dict["params"][0].item()[-1][0])
+            with InTemporaryDirectory():
+                pdf.write(fibers, hdr, fiber_stats, node_stats, 'pdb_file.pdb')
+                fibers2, hdr2, fiber_stats2, node_stats2 = \
+                    pdf.read('pdb_file.pdb')
+                for p1, p2 in zip([fibers, hdr, fiber_stats, node_stats],
+                                  [fibers2, hdr2, fiber_stats2, node_stats2]):
+                    npt.assert_equal(p1, p2)
 
-            pdf.write(fibers, hdr, fiber_stats, node_stats, 'pdb_file.pdb')
-            fibers2, hdr2, fiber_stats2, node_stats2 = pdf.read('pdb_file.pdb')
-            for p1, p2 in zip([fibers, hdr, fiber_stats, node_stats],
-                          [fibers2, hdr2, fiber_stats2, node_stats2]):
-                npt.assert_equal(p1, p2)
+
+def test_trk_pdb():
+    """
+
+    """
+    trk_file = dpd.get_data('fornix')
+    trk_fibs, trk_hdr = nib.trackvis.read(trk_file)
+    get_fibers = [f[0] for f in trk_fibs]
+    with InTemporaryDirectory():
+        pdf.trk2pdb(trk_file, 'pdb_file.pdb')
+        fibers, hdr, fiber_stats, node_stats = pdf.read('pdb_file.pdb')
+        npt.assert_equal(get_fibers, fibers)
+        pdf.pdb2trk('pdb_file.pdb', 'new_trk.trk')
+        new_trk_fibs, new_trk_hdr = nib.trackvis.read(trk_file)
+        npt.assert_equal(trk_fibs, new_trk_fibs)
+        npt.assert_equal(trk_hdr, new_trk_hdr)
+        
