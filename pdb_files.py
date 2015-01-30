@@ -359,7 +359,7 @@ def write(fibers, hdr, fiber_stats, node_stats, file_name):
 
     Notes
     -----
-    Files are written as version 0.3 
+    Files are written as version 3 
     """
 
     fwrite = file(file_name, 'w')
@@ -445,10 +445,18 @@ def empty_hdr():
                       'viewable': []},
             'version': np.array([3])}
 
-def trk2pdb(trk_file, pdb_file):
+def trk2pdb(trk_file, pdb_file, affine=None):
     trk_fibs, trk_hdr = nib.trackvis.read(trk_file)
     pdb_hdr = empty_hdr()
-    pdb_hdr['affine'] = nib.trackvis.aff_from_hdr(trk_hdr)
+    if affine is None:
+        try:
+            pdb_hdr['affine'] = nib.trackvis.aff_from_hdr(trk_hdr)
+        except:
+            pdb_hdr['affine'] = np.eye(4)
+
+    else:
+        pdb_hdr['affine'] = affine
+        
     pdb_hdr['n_paths'] = trk_hdr['n_count']
     fibers = [f[0] for f in trk_fibs]
     fiber_stats = []
@@ -456,13 +464,17 @@ def trk2pdb(trk_file, pdb_file):
     write(fibers, pdb_hdr, fiber_stats, node_stats, pdb_file)
     
 
-def pdb2trk(pdb_file, trk_file):
+def pdb2trk(pdb_file, trk_file, affine=None):
     pdb_fibs, pdb_hdr, fiber_stats, node_stats = read(pdb_file)
     trk_hdr = nib.trackvis.empty_header()
-    try:
-        nib.trackvis.aff_to_hdr(pdb_hdr['affine'], trk_hdr)
-    except np.linalg.LinAlgError:
-        nib.trackvis.aff_to_hdr(np.eye(4), trk_hdr)
+    if affine is None:
+        try:
+            nib.trackvis.aff_to_hdr(pdb_hdr['affine'], trk_hdr)
+        except np.linalg.LinAlgError:
+            nib.trackvis.aff_to_hdr(np.eye(4), trk_hdr)
+    else:
+        nib.trackvis.aff_to_hdr(affine, trk_hdr)
+        
     trk_fibs = []
     for ff in pdb_fibs:
         trk_fibs.append((ff, None, None))
