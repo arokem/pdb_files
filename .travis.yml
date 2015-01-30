@@ -4,11 +4,9 @@ deploy:
   provider: pypi
   user: arokem
   password:
-    secure: AB7BnrkNOTQWXUNiaShedbIEBay+5JbulAxUHY4vEMdiI68bPLYOrIDxuT/lIfWrrgXUuicbJcWUxt6zpdUEQrEfYB6pNhrosZv4+R5HZu1FHY7EfOfsyHxb2wnezKuIEVXdevAmIg5rYNeTPcdl/CFm4xQGfdc4a3eyT5cJT58=
+    secure: U59DX6B+bGQ2uoXypxqKRmVlpOECip0WrHF1+cORY3mgMQCCrOh5IAExD4fmypJ15wrRdxwVENwz6Bc3rgBAxDItm3GUWTEb9wJj2mrh0KvJjO3CqtKHJxJsjjis4hazea/rW67pB1B5g7zMvq32AwVifXJcjHC6Onnk1YezPKo=
   on:
     tags: true
     repo: vistalab/pdb_files
-    # until this is fixed: https://github.com/travis-ci/travis-ci/issues/1675
-    all_branches: true
 script:
-  - true
+- true
