@@ -8,5 +8,6 @@ deploy:
   on:
     tags: true
     repo: vistalab/pdb_files
+    all_branches: true
 script:
 - true
